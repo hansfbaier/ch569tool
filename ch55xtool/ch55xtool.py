@@ -35,6 +35,13 @@ WRITE_CMD_V2 = [0xa5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 VERIFY_CMD_V2 = [0xa6, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 READ_CFG_CMD_V2 = [0xa7, 0x02, 0x00, 0x1f, 0x00]
 
+ENABLE_DEBUG_CMD = [
+  0xa8, 0x0e, 0x00, 0x07,
+  0x00, 0x11, 0xbf, 0xf9,
+  0xf7, 0x13, 0xbf, 0xf9,
+  0xec, 0xe5, 0xf2, 0xff, 0x8f
+]
+
 CH55X_IC_REF = {}
 CH55X_IC_REF[0x51] = {
     'device_name': 'CH551',
@@ -61,8 +68,17 @@ CH55X_IC_REF[0x59] = {
     'device_flash_size': 61440,
     'device_dataflash_size': 128,
     'chip_id': 0x59}
+CH55X_IC_REF[0x69] = {
+    'device_name': 'CH569',
+    'device_flash_size': 448 * 1024,
+    'device_dataflash_size': 32 * 1024,
+    'chip_id': 0x69}
+
+DEBUG = False
 # =============================================
 
+def __to_hex(str):
+    return " ".join(f"{c:02x}" for c in str)
 
 def __get_dfu_device(idVendor=DFU_ID_VENDOR, idProduct=DFU_ID_PRODUCT):
     dev = usb.core.find(idVendor=idVendor, idProduct=idProduct)
@@ -91,8 +107,9 @@ def __get_dfu_device(idVendor=DFU_ID_VENDOR, idProduct=DFU_ID_PRODUCT):
 
 
 def __detect_ch55x_v2(dev):
-    dev.write(EP_OUT_ADDR, DETECT_CHIP_CMD_V2)
+    dev.write(EP_OUT_ADDR, b'\xa1\x12\x00B\x10MCU ISP & WCH.CN')
     ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
+    if DEBUG: print(f"ret: {__to_hex(ret)}")
     try:
         return CH55X_IC_REF[ret[4]]
     except KeyError:
@@ -102,6 +119,7 @@ def __detect_ch55x_v2(dev):
 def __read_cfg_ch55x_v2(dev):
     dev.write(EP_OUT_ADDR, READ_CFG_CMD_V2)
     ret = dev.read(EP_IN_ADDR, 30, USB_MAX_TIMEOUT)
+    if DEBUG: print(f"ret: {__to_hex(ret)}")
 
     ver_str = 'V%d.%d%d' % (ret[19], ret[20], ret[21])
     chk_sum = (ret[22] + ret[23] + ret[24] + ret[25]) % 256
@@ -114,6 +132,8 @@ def __write_key_ch55x_v20(dev, chk_sum):
 
     dev.write(EP_OUT_ADDR, SEND_KEY_CMD_V20)
     ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
+    if DEBUG: print(f"ret: {__to_hex(ret)}")
+
     if ret[3] == 0:
         return True
     else:
@@ -121,8 +141,11 @@ def __write_key_ch55x_v20(dev, chk_sum):
 
 
 def __write_key_ch55x_v23(dev):
+    if DEBUG: print(f"write key: {__to_hex(SEND_KEY_CMD_V23)}")
     dev.write(EP_OUT_ADDR, SEND_KEY_CMD_V23)
     ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
+    if DEBUG: print(f"ret: {__to_hex(ret)}")
+
     if ret[3] == 0:
         return True
     else:
@@ -135,8 +158,11 @@ def __erase_chip_ch55x_v2(dev, binary_size):
     print('Erase size: 0x%x' % (erase_size * 0x1000))
     cmd = ERASE_CHIP_CMD_V2.copy()
     cmd[3] = erase_size
+    if DEBUG: print(f"write erase chip: {__to_hex(cmd)}")
     dev.write(EP_OUT_ADDR, cmd)
     ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
+    if DEBUG: print(f"ret: {__to_hex(ret)}")
+
     if ret[3] == 0:
         return True
     else:
@@ -217,8 +243,10 @@ def __write_flash_ch55x_v23(dev, chk_sum, chip_id, payload):
         __WRITE_CMD_V2 = __WRITE_CMD_V2 + \
             payload[curr_addr:curr_addr + pkt_length]
 
+        if DEBUG: print(f"write flash: {__to_hex(__WRITE_CMD_V2)}")
         dev.write(EP_OUT_ADDR, __WRITE_CMD_V2)
         ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
+        if DEBUG: print(f"ret: {__to_hex(ret)}\n")
 
         curr_addr = curr_addr + pkt_length
         left_len = left_len - pkt_length
@@ -303,17 +331,30 @@ def __verify_flash_ch55x_v23(dev, chk_sum, chip_id, payload):
         __VERIFY_CMD_V2 = __VERIFY_CMD_V2 + \
             payload[curr_addr:curr_addr + pkt_length]
 
+        if DEBUG: print(f"verify flash: {__to_hex(__VERIFY_CMD_V2)}")
         dev.write(EP_OUT_ADDR, __VERIFY_CMD_V2)
         ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
+        if DEBUG: print(f"ret: {__to_hex(ret)}\n")
+
+        if ret[4] != 0x00:
+            print(f"verify failed at address: 0x{curr_addr:x} of 0x{file_length:x}")
+            return None
 
         curr_addr = curr_addr + pkt_length
         left_len = left_len - pkt_length
 
-        if ret[4] != 0x00:
-            return None
-
     return file_length
 
+def __enable_debug_ch55x_v2(dev):
+    if DEBUG: print(f"enable debug: {__to_hex(ENABLE_DEBUG_CMD)}")
+    dev.write(EP_OUT_ADDR, ENABLE_DEBUG_CMD)
+    ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
+    if DEBUG: print(f"ret: {__to_hex(ret)}\n")
+
+    if ret[4] != 0x00:
+        return None
+    else:
+        return True
 
 def __end_flash_ch55x_v2(dev):
     dev.write(EP_OUT_ADDR, END_FLASH_CMD_V2)
@@ -343,13 +384,20 @@ def main():
         action='store_true',
         default=False,
         help="Reset after finsh flash.")
+    parser.add_argument(
+        '-d',
+        '--enable_debug_interface',
+        action='store_true',
+        default=False,
+        help="Enable the SWD debug interface on the device"
+    )
     args = parser.parse_args()
 
     ret = __get_dfu_device()
     if ret[0] is None:
         print('Failed to get device, please check your libusb installation.')
         sys.exit(-1)
-        
+
     dev = ret[0]
 
     ret = __detect_ch55x_v2(dev)
@@ -360,14 +408,17 @@ def main():
 
     print('Found %s.' % ret['device_name'])
     chip_id = ret['chip_id']
-    
-    if len(payload) > ret['device_flash_size']:
-        print('The binary is too large for the device.')
-        print('Binary size: 0x%x, Flash size: 0x%x' % (len(payload), ret['device_flash_size']))
-        sys.exit(-1)
+
+    if args.file != '':
+        payload = list(open(args.file, 'rb').read())
+        if len(payload) > ret['device_flash_size']:
+            print('The binary is too large for the device.')
+            print('Binary size: 0x%x, Flash size: 0x%x' % (len(payload), ret['device_flash_size']))
+            sys.exit(-1)
 
     ret = __read_cfg_ch55x_v2(dev)
     chk_sum = ret[1]
+    if DEBUG: print(f"checksum: 0x{chk_sum:x}")
 
     print('BTVER: %s.' % ret[0])
 
@@ -392,7 +443,7 @@ def main():
             if ret is None:
                 sys.exit('Failed to verify firmware of CH55x.')
         else:
-            if ret[0] in ['V2.31', 'V2.40']:
+            if ret[0] in ['V2.31', 'V2.40', 'V2.70']:
                 ret = __write_key_ch55x_v23(dev)
                 if ret is None:
                     sys.exit('Failed to write key to CH55x.')
@@ -420,3 +471,15 @@ def main():
         if args.reset_after_flash:
             __restart_run_ch55x_v2(dev)
             print('Restart and run.')
+
+    if args.enable_debug_interface:
+        if ret[0] in ['V2.31', 'V2.40', 'V2.70']:
+            ret = __enable_debug_ch55x_v2(dev)
+            if ret is None:
+                sys.exit("Failed to enable debug mode")
+            ret = __read_cfg_ch55x_v2(dev)
+            if DEBUG: print(f"checksum: 0x{ret[1]:x}")
+            __end_flash_ch55x_v2(dev)
+            print('done.')
+        else:
+            sys.exit('Bootloader version not supported.')
