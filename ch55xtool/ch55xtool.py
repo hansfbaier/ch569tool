@@ -41,10 +41,21 @@ READ_CFG_CMD_V2 = [0xa7, 0x02, 0x00, 0x1f, 0x00]
 DUMP_ROM_CMD = [0xab, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]
 
 ENABLE_DEBUG_CMD = [
-  0xa8, 0x0e, 0x00, 0x07,
-  0x00, 0x11, 0xbf, 0xf9,
-  0xf7, 0x13, 0xbf, 0xf9,
-  0xec, 0xe5, 0xf2, 0xff, 0x8f
+    0xa8, 0x0e, 0x00, 0x07, 0x00,
+    0x11, 0xbf, 0xf9, 0xf7, # => 20021138
+    0x13, 0xbf, 0xf9, 0xec, # => 2002113c
+    0xe5,                   # val = RX_Buf[13] & 0xfffffff5 | 0x45;
+    0xf2,                   # pos = RX_Buf[14] & 0xfffffffe | 2;
+    0xff, 0x8f # non-volatile-info_update = RX_Buf[16] << 24 + RX_Buf[15] << 16 + pos << 8 + val ;
+]
+
+DISABLE_DEBUG_CMD = [
+    0xa8, 0x0e, 0x00, 0x07, 0x00,
+    0x11, 0xbf, 0xf9, 0xf7,
+    0x13, 0xbf, 0xf9, 0xec,
+    0x45,
+    0xf2,
+    0xff, 0x8f
 ]
 
 CH55X_IC_REF = {}
@@ -452,9 +463,10 @@ def __verify_flash_ch56x_v27(dev, chk_sum, chip_id, payload):
 
     return file_length
 
-def __enable_debug_ch55x_v2(dev):
-    if DEBUG: print(f"enable debug: {__to_hex(ENABLE_DEBUG_CMD)}")
-    dev.write(EP_OUT_ADDR, ENABLE_DEBUG_CMD)
+def __set_debug_ch55x_v2(dev, enable=True):
+    cmd = ENABLE_DEBUG_CMD if enable else DISABLE_DEBUG_CMD
+    if DEBUG: print(("enable" if enable else "disable") + f" debug: {__to_hex(cmd)}")
+    dev.write(EP_OUT_ADDR, cmd)
     ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
     if DEBUG: print(f" {__to_hex(ret)}\n")
 
@@ -552,6 +564,10 @@ def main():
             if ret is None:
                 sys.exit('Failed to write key to CH56x.')
 
+            ret = __set_debug_ch55x_v2(dev, enable=False)
+            if ret is None:
+                sys.exit("Failed to disable debug mode")
+
             if not args.verify:
                 ret = __erase_chip_ch56x_v27(dev, len(payload))
                 if ret is None:
@@ -587,7 +603,7 @@ def main():
             print('Flash done.')
 
     if args.dump:
-        ret = __enable_debug_ch55x_v2(dev)
+        ret = __set_debug_ch55x_v2(dev)
         if ret is None:
             sys.exit("Failed to enable debug mode")
         for i in range(0x8000 // 0x20):
@@ -595,7 +611,7 @@ def main():
 
     if args.enable_debug_interface:
         if ret[0] in ['V2.70']:
-            ret = __enable_debug_ch55x_v2(dev)
+            ret = __set_debug_ch55x_v2(dev)
             if ret is None:
                 sys.exit("Failed to enable debug mode")
             ret = __read_cfg_ch55x_v2(dev)
