@@ -90,7 +90,7 @@ CH55X_IC_REF[0x69] = {
     'device_dataflash_size': 32 * 1024,
     'chip_id': 0x69}
 
-DEBUG = True
+DEBUG = False
 # =============================================
 
 def __to_hex(str):
