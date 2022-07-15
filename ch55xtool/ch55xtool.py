@@ -125,7 +125,7 @@ def __get_dfu_device(idVendor=DFU_ID_VENDOR, idProduct=DFU_ID_PRODUCT):
 def __detect_ch55x_v2(dev):
     dev.write(EP_OUT_ADDR, b'\xa1\x12\x00B\x10MCU ISP & WCH.CN')
     ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
-    if DEBUG: print(f" {__to_hex(ret)}")
+    if DEBUG: print(f"{__to_hex(ret)}")
     try:
         return CH55X_IC_REF[ret[4]]
     except KeyError:
@@ -135,18 +135,20 @@ def __dump_rom(dev, addr, length):
     cmd = DUMP_ROM_CMD.copy()
     cmd[3] = addr & 0xff
     cmd[4] = (addr >> 8) & 0xff
+    cmd[5] = (addr >> 16) & 0xff
+    cmd[6] = (addr >> 24) & 0xff
     cmd[7] = length & 0xff
     if DEBUG: print(f"dump ROM:\n{__to_hex(cmd)}")
     dev.write(EP_OUT_ADDR, cmd)
     ret = dev.read(EP_IN_ADDR, (6 + length) & 0xff, USB_MAX_TIMEOUT)
-    if DEBUG: print(f" {__to_hex(ret)}")
+    if DEBUG: print(f"{__to_hex(ret)}")
     return ret[6:]
 
 def __read_cfg_ch55x_v2(dev):
     if DEBUG: print(f"read config:\n{__to_hex(READ_CFG_CMD_V2)}")
     dev.write(EP_OUT_ADDR, READ_CFG_CMD_V2)
     ret = dev.read(EP_IN_ADDR, 30, USB_MAX_TIMEOUT)
-    if DEBUG: print(f" {__to_hex(ret)}")
+    if DEBUG: print(f"{__to_hex(ret)}")
 
     ver_str = 'V%d.%d%d' % (ret[19], ret[20], ret[21])
     chk_sum = (ret[22] + ret[23] + ret[24] + ret[25]) & 0xff
@@ -159,7 +161,7 @@ def __write_key_ch55x_v20(dev, chk_sum):
 
     dev.write(EP_OUT_ADDR, SEND_KEY_CMD_V20)
     ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
-    if DEBUG: print(f" {__to_hex(ret)}")
+    if DEBUG: print(f"{__to_hex(ret)}")
 
     if ret[3] == 0:
         return True
@@ -259,7 +261,7 @@ def __write_flash_ch55x_v20(dev, chk_sum, chip_id, payload):
         if DEBUG: print(f"write flash: {__to_hex(__WRITE_CMD_V2)}")
         dev.write(EP_OUT_ADDR, __WRITE_CMD_V2)
         ret = dev.read(EP_IN_ADDR, 6, USB_MAX_TIMEOUT)
-        if DEBUG: print(f" {__to_hex(ret)}\n")
+        if DEBUG: print(f"{__to_hex(ret)}\n")
 
         curr_addr = curr_addr + pkt_length
         left_len = left_len - pkt_length
@@ -588,10 +590,6 @@ def main():
                 sys.exit('Failed to verify firmware of CH55x.')
         else:
             sys.exit('Bootloader version not supported.')
-
-        if DEBUG:
-            for i in range(0x8000 // 0x20):
-                __dump_rom(dev, i * 0x20, 0x20)
 
         if args.reset_after_flash:
             __restart_run_ch55x_v2(dev)
