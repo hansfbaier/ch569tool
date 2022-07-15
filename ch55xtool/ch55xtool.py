@@ -151,7 +151,10 @@ def __read_cfg_ch55x_v2(dev):
     if DEBUG: print(f"{__to_hex(ret)}")
 
     ver_str = 'V%d.%d%d' % (ret[19], ret[20], ret[21])
-    chk_sum = (ret[22] + ret[23] + ret[24] + ret[25]) & 0xff
+    if ver_str == 'V2.70':
+        chk_sum = sum(ret[-8:]) & 0xff
+    else:
+        chk_sum = (ret[22] + ret[23] + ret[24] + ret[25]) & 0xff
 
     return (ver_str, chk_sum)
 
